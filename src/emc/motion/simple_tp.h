@@ -21,6 +21,9 @@
 #ifndef SIMPLE_TP_H
 #define SIMPLE_TP_H
 
+// stopping criterion:
+#define TINY_DP(max_acc,period) (max_acc*period*period*0.001)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -33,6 +36,11 @@ extern "C" {
 	double curr_pos;	/* current position */
 	double curr_vel;	/* current velocity */
 	int active;		/* non-zero if motion in progress */
+    double in_pos_old;  /* limit3 method */
+    double out_vel_old; /* limit3 method */
+    double min_pos;     /* limit3 method */
+    double max_pos;     /* limit3 method */
+    int disallow_backoff; /* default of 0 suppresses overshoot */
     } simple_tp_t;
 
 /* I could write a bunch of functions to read and write the first four
