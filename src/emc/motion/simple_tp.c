@@ -48,9 +48,33 @@ void simple_tp_update(simple_tp_t *tp, double period)
     p->L3_active           = &tp->active;
     p->L3_in_limit         = &in_limit;
 
-    if (! tp->enable) {
-        *p->L3_pos_cmd = *p->L3_curr_pos;
-        SET_NEXT_STATE(p, *p->L3_curr_pos, 0, *p->L3_curr_pos);
+    if (!tp->enable) {
+        double max_dv  = *p->L3_max_acc * period;
+        if (fabs(tp->curr_vel) <= max_dv) {
+            *p->L3_pos_cmd = *p->L3_curr_pos;
+            SET_NEXT_STATE(p, *p->L3_curr_pos, 0, *p->L3_curr_pos);
+        } else{
+            // handle abort stopping (deasserted enable)
+            // to end a continuous jog
+            double vel_req = 0;
+            *p->L3_pos_cmd = *p->L3_curr_pos;
+            /* ramp velocity toward request at accel limit */
+            if (vel_req > *p->L3_curr_vel + max_dv) {
+                *p->L3_curr_vel += max_dv;
+            } else if (vel_req < *p->L3_curr_vel - max_dv) {
+                *p->L3_curr_vel -= max_dv;
+            } else {
+                *p->L3_curr_vel = vel_req;
+            }
+            /* check for still moving */
+            if (tp->curr_vel != 0.0) {
+                /* yes, mark planner active */
+                tp->active = 1;
+            }
+            /* integrate velocity to get new position */
+            tp->curr_pos += tp->curr_vel * period;
+            return;
+        }
     }
 
     limit3_planner(p,period) ;
