@@ -37,7 +37,7 @@ import array, time, atexit, tempfile, shutil, errno, thread, select, re, getopt
 import traceback
 
 # Print Tk errors to stdout. python.org/sf/639266
-import Tkinter 
+import Tkinter
 OldTk = Tkinter.Tk
 class Tk(OldTk):
     def __init__(self, *args, **kw):
@@ -119,6 +119,8 @@ ap = AxisPreferences()
 
 os.system("xhost -SI:localuser:gdm -SI:localuser:root > /dev/null 2>&1")
 root_window = Tkinter.Tk(className="Axis")
+dpi_value = root_window.winfo_fpixels('1i')
+root_window.tk.call('tk', 'scaling', '-displayof', '.', dpi_value / 72.0)
 root_window.iconify()
 nf.start(root_window)
 nf.makecommand(root_window, "_", _)
@@ -601,6 +603,18 @@ class MyOpengl(GlCanonDraw, Opengl):
 
         text.delete("0.0", "end")
         t = droposstrs[:]
+        i = 0
+        for ts in t:
+            if i < len(homed) and homed[i]:
+                t[i] += "*"
+            else:
+                t[i] += " "
+            if i < len(homed) and limit[i]:
+                t[i] += "!" # !!!1!
+            else:
+                t[i] += " "
+            i+=1
+
         text.insert("end", "\n".join(t))
 
         window_height = text.winfo_height()
@@ -635,6 +649,12 @@ def select_line(event):
     i = t.index("@%d,%d" % (event.x, event.y))
     i = int(i.split('.')[0])
     o.set_highlight_line(i)
+    o.tkRedraw()
+    return "break"
+
+def release_select_line(event):
+    o.set_highlight_line(None)
+    o.set_current_line(None)
     o.tkRedraw()
     return "break"
 
@@ -731,7 +751,7 @@ class LivePlotter:
 
     def error_task(self):
         error = e.poll()
-        while error: 
+        while error:
             kind, text = error
             if kind in (linuxcnc.NML_ERROR, linuxcnc.OPERATOR_ERROR):
                 icon = "error"
@@ -852,13 +872,13 @@ class LivePlotter:
         vupdate(vars.interp_pause, self.stat.paused)
         vupdate(vars.mist, self.stat.mist)
         vupdate(vars.flood, self.stat.flood)
-        vupdate(vars.brake, self.stat.spindle_brake)
-        vupdate(vars.spindledir, self.stat.spindle_direction)
+        vupdate(vars.brake, self.stat.spindle[0]['brake'])
+        vupdate(vars.spindledir, self.stat.spindle[0]['direction'])
         vupdate(vars.motion_mode, self.stat.motion_mode)
         vupdate(vars.optional_stop, self.stat.optional_stop)
         vupdate(vars.block_delete, self.stat.block_delete)
         if time.time() > spindlerate_blackout:
-            vupdate(vars.spindlerate, int(100 * self.stat.spindlerate + .5))
+            vupdate(vars.spindlerate, int(100 * self.stat.spindle[0]['override'] + .5))
         if time.time() > feedrate_blackout:
             vupdate(vars.feedrate, int(100 * self.stat.feedrate + .5))
         if time.time() > rapidrate_blackout:
@@ -1255,7 +1275,7 @@ tabs_preview = str(root_window.tk.call("set", "_tabs_preview"))
 tabs_numbers = str(root_window.tk.call("set", "_tabs_numbers"))
 pane_top = str(root_window.tk.call("set", "pane_top"))
 pane_bottom = str(root_window.tk.call("set", "pane_bottom"))
-widgets = nf.Widgets(root_window, 
+widgets = nf.Widgets(root_window,
     ("help_window", Toplevel, ".keys"),
     ("about_window", Toplevel, ".about"),
     ("text", Text, pane_bottom + ".t.text"),
@@ -1414,7 +1434,7 @@ def set_hal_jogincrement():
 def jogspeed_listbox_change(dummy, value):
     global jogincr_index_last
     # pdb.set_trace()
-    # FJ: curselection is not always up to date here, so 
+    # FJ: curselection is not always up to date here, so
     #     do a linear search by hand
     iterator = root_window.call(widgets.jogincr._w, "list", "get", "0", "end")
     idx = 0
@@ -1454,7 +1474,7 @@ def jogspeed_incremental(dir=1):
             jogincr_index_last -= 1
         if jogincr_index_last < 1:
             jogincr_index_last = 1
-    root_window.call(widgets.jogincr._w, "select", jogincr_index_last)   
+    root_window.call(widgets.jogincr._w, "select", jogincr_index_last)
     set_hal_jogincrement()
 
 
@@ -1631,7 +1651,7 @@ class _prompt_float:
             else:
                 self.w.set(value)
 
-        if ok: 
+        if ok:
             self.ok.configure(state="normal")
         else:
             self.ok.configure(state="disabled")
@@ -1698,7 +1718,7 @@ class _prompt_touchoff(_prompt_float):
             mb.configure(takefocus=1)
             l.pack(side="left")
             mb.pack(side="left")
-        f.pack(side="top") 
+        f.pack(side="top")
         self.buttons.tkraise()
         if not tool_only:
             for i in [1,2,3,4,5,6,7,8,9]:
@@ -1721,7 +1741,7 @@ class _prompt_touchoff(_prompt_float):
     def result(self):
         if self.u.get(): return self.v.get(), self.c.get()
         return None, None
-        
+
 def prompt_touchoff(title, text, default, tool_only, system=None):
     t = _prompt_touchoff(title=title,
                          text_pattern=text,
@@ -1919,7 +1939,7 @@ class TclCommands(nf.TclCommands):
 
     def toggle_tto_g11(event=None):
         ap.putpref("tto_g11", vars.tto_g11.get())
-        
+
     def toggle_optional_stop(event=None):
         c.set_optional_stop(vars.optional_stop.get())
         ap.putpref("optional_stop", vars.optional_stop.get())
@@ -1973,7 +1993,7 @@ class TclCommands(nf.TclCommands):
                 sum(dist(l[1][:3], l[2][:3])/mf  for l in o.canon.traverse) +
                 o.canon.dwell_time
                 )
- 
+
             props['g0'] = "%f %s".replace("%f", fmt) % (from_internal_linear_unit(g0, conv), units)
             props['g1'] = "%f %s".replace("%f", fmt) % (from_internal_linear_unit(g1, conv), units)
             if gt > 120:
@@ -2141,7 +2161,8 @@ class TclCommands(nf.TclCommands):
             ((_("All files"), "*"),)
         f = root_window.tk.call("tk_getOpenFile", "-initialdir", open_directory,
             "-filetypes", types)
-        if not f: return
+        if type(f) is tuple and not len(f): return
+        if not len(str(f)): return
         o.set_highlight_line(None)
         f = str(f)
         open_directory = os.path.dirname(f)
@@ -2169,6 +2190,8 @@ class TclCommands(nf.TclCommands):
             commands.set_view_x()
         elif str(widgets.view_y['relief']) == "sunken":
             commands.set_view_y()
+        elif str(widgets.view_y2['relief']) == "sunken":
+            commands.set_view_y2()
         elif str(widgets.view_z['relief']) == "sunken":
             commands.set_view_z()
         elif  str(widgets.view_z2['relief']) == "sunken":
@@ -2261,6 +2284,22 @@ class TclCommands(nf.TclCommands):
             return
         ensure_mode(linuxcnc.MODE_AUTO)
         c.auto(linuxcnc.AUTO_PAUSE)
+
+    def task_reverse(*event):
+        s.poll()
+        if s.task_mode != linuxcnc.MODE_AUTO:
+            return
+
+        ensure_mode(linuxcnc.MODE_AUTO)
+        c.auto(linuxcnc.AUTO_REVERSE)
+
+    def task_forward(*event):
+        s.poll()
+        if s.task_mode != linuxcnc.MODE_AUTO:
+            return
+
+        ensure_mode(linuxcnc.MODE_AUTO)
+        c.auto(linuxcnc.AUTO_FORWARD)
 
     def task_resume(*event):
         s.poll()
@@ -2374,7 +2413,7 @@ class TclCommands(nf.TclCommands):
                     if history_size != -1:
                         for idx in range(history_size - 1):
                             f.write("%s\n" % widgets.mdi_history.get(idx, idx))
-                finally:    
+                finally:
                     f.close()
             except IOError:
                 print >>sys.stderr, "Can't open MDI history file [%s] for writing" % file_name
@@ -2509,7 +2548,7 @@ class TclCommands(nf.TclCommands):
     def set_grid_size_custom(*event):
         if vars.metric.get(): unit_str = " " + _("mm")
         else: unit_str = " " + _("in")
-        v = prompt_float("Custom Grid", "Enter grid size",
+        v = prompt_float(_("Custom Grid"), _("Enter grid size"),
                 "", unit_str) or 0
         if v <= 0: return
         if vars.metric.get(): v /= 25.4
@@ -2534,6 +2573,17 @@ class TclCommands(nf.TclCommands):
 
     def clear_live_plot(*ignored):
         live_plotter.clear()
+
+    def toggle_show_pyvcppanel(*event):
+        # need to toggle variable manually for keyboard shortcut
+        if len(event) > 0:
+            vars.show_pyvcppanel.set(not vars.show_pyvcppanel.get())
+
+        if vars.show_pyvcppanel.get():
+            vcp_frame.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
+        else:
+            vcp_frame.grid_remove()
+        o.tkRedraw()
 
     # The next three don't have 'manual_ok' because that's done in jog_on /
     # jog_off
@@ -2572,10 +2622,10 @@ class TclCommands(nf.TclCommands):
         jora = vars.ja_rbutton.get()
         if jora in trajcoordinates:
             if s.kinematics_type != linuxcnc.KINEMATICS_IDENTITY:
-                print "home_joint <%s> Use joint mode for homing"%jora
+                print _("home_joint <%s> Use joint mode for homing")%jora
                 return
             if jora in duplicate_coord_letters:
-                print "\nIndividual axis homing disallowed for duplicated letter:<%s> "%jora
+                print _("\nIndividual axis homing disallowed for duplicated letter:<%s> ")%jora
                 return
             jnum = trajcoordinates.index(jora)
         else:
@@ -2592,7 +2642,7 @@ class TclCommands(nf.TclCommands):
         jora = vars.ja_rbutton.get()
         if jora in trajcoordinates:
             if s.kinematics_type != linuxcnc.KINEMATICS_IDENTITY:
-                print "unhome_joint <%s> Use joint mode for unhoming"%jora
+                print _("unhome_joint <%s> Use joint mode for unhoming")%jora
                 return
             jnum = trajcoordinates.index(jora)
         else:
@@ -2627,7 +2677,7 @@ class TclCommands(nf.TclCommands):
         s.poll()
         o.tkRedraw()
         reload_file(False)
-        
+
     def touch_off_system(event=None, new_axis_value = None):
         global system
         if not manual_ok(): return
@@ -2725,7 +2775,11 @@ class TclCommands(nf.TclCommands):
     def spindle(event=None):
         if not manual_ok(): return
         ensure_mode(linuxcnc.MODE_MANUAL)
-        c.spindle(vars.spindledir.get(),default_spindle_speed)
+        d = vars.spindledir.get()
+        if d == 0:
+            c.spindle(d)
+        else:
+            c.spindle(d, default_spindle_speed)
     def spindle_increase(event=None):
         c.spindle(linuxcnc.SPINDLE_INCREASE)
     def spindle_decrease(event=None):
@@ -2748,7 +2802,7 @@ class TclCommands(nf.TclCommands):
     def spindle_forward_toggle(*args):
         if not manual_ok(): return
         s.poll()
-        if s.spindle_direction == 0:
+        if s.spindle[0]['direction'] == 0:
             c.spindle(linuxcnc.SPINDLE_FORWARD,default_spindle_speed)
         else:
             c.spindle(linuxcnc.SPINDLE_OFF)
@@ -2756,7 +2810,7 @@ class TclCommands(nf.TclCommands):
     def spindle_backward_toggle(*args):
         if not manual_ok(): return "break"
         s.poll()
-        if s.spindle_direction == 0:
+        if s.spindle[0]['direction'] == 0:
             c.spindle(linuxcnc.SPINDLE_REVERSE,default_spindle_speed)
         else:
             c.spindle(linuxcnc.SPINDLE_OFF)
@@ -2861,7 +2915,7 @@ class TclCommands(nf.TclCommands):
 
 commands = TclCommands(root_window)
 
-vars = nf.Variables(root_window, 
+vars = nf.Variables(root_window,
     ("linuxcnctop_command", StringVar),
     ("emcini", StringVar),
     ("mdi_command", StringVar),
@@ -2893,6 +2947,7 @@ vars = nf.Variables(root_window,
     ("show_machine_speed", IntVar),
     ("show_distance_to_go", IntVar),
     ("dro_large_font", IntVar),
+    ("show_pyvcppanel", IntVar),
     ("show_rapids", IntVar),
     ("feedrate", IntVar),
     ("rapidrate", IntVar),
@@ -2939,11 +2994,15 @@ vars.show_machine_limits.set(ap.getpref("show_machine_limits", True))
 vars.show_machine_speed.set(ap.getpref("show_machine_speed", True))
 vars.show_distance_to_go.set(ap.getpref("show_distance_to_go", False))
 vars.dro_large_font.set(ap.getpref("dro_large_font", False))
+vars.show_pyvcppanel.set(True)
 vars.block_delete.set(ap.getpref("block_delete", True))
 vars.optional_stop.set(ap.getpref("optional_stop", True))
 
 # placeholder function for LivePlotter.update():
 def user_live_update():
+    pass
+# placeholder function for building user HAL pins
+def user_hal_pins():
     pass
 
 vars.touch_off_system.set(all_systems[0])
@@ -2980,6 +3039,8 @@ root_window.bind("o", commands.open_file)
 root_window.bind("s", commands.task_resume)
 root_window.bind("t", commands.task_step)
 root_window.bind("p", commands.task_pause)
+root_window.bind("R", commands.task_reverse)
+root_window.bind("F", commands.task_forward)
 root_window.bind("v", commands.cycle_view)
 root_window.bind("<Alt-p>", "#nothing")
 root_window.bind("r", commands.task_run)
@@ -3071,7 +3132,7 @@ try:
                 history_size += 1
             else:
                 skip -= 1
-    finally:    
+    finally:
         f.close()
 except IOError:
     pass
@@ -3280,8 +3341,8 @@ try:
     vars.maxvel_speed.set(float(max_velocity)*60)
     vars.max_maxvel.set(float(max_velocity))
 except Exception:
-    print ("\nMissing required specifier:\n%s"
-           "\nSee the \'INI Configuration\' documents\n"%msg)
+    print (_("\nMissing required specifier:\n%s"
+           "\nSee the \'INI Configuration\' documents\n")%msg)
     raise SystemExit
 
 try:
@@ -3293,8 +3354,8 @@ try:
             default_jog_linear_speed = max_linear_speed
         vars.jog_speed.set(float(default_jog_linear_speed)*60)
 except Exception:
-    print ("\nMissing required specifier (has linear joint or axis):\n%s"
-           "\nSee the \'INI Configuration\' documents\n"%msg)
+    print (_("\nMissing required specifier (has linear joint or axis):\n%s"
+           "\nSee the \'INI Configuration\' documents\n")%msg)
     raise SystemExit
 
 # Check for these slider items (message if missing)
@@ -3306,8 +3367,8 @@ try:
         if default_jog_angular_speed is None: default_jog_angular_speed = max_angular_speed
         vars.jog_aspeed.set(float(default_jog_angular_speed)*60)
 except Exception:
-    print ("\nWarning: Missing required specifier (has angular joint or axis):\n%s"
-           "\nSee the \'INI Configuration\' documents\n"%msg)
+    print (_("\nWarning: Missing required specifier (has angular joint or axis):\n%s"
+           "\nSee the \'INI Configuration\' documents\n")%msg)
     max_angular_speed = 1
     default_jog_angular_speed = 1
     vars.max_aspeed.set(float(max_angular_speed))
@@ -3378,7 +3439,13 @@ else:
     root_window.tk.eval("${pane_top}.jogspeed.l1 configure -text in/min")
     root_window.tk.eval("${pane_top}.maxvel.l1 configure -text in/min")
 root_window.tk.eval(u"${pane_top}.ajogspeed.l1 configure -text deg/min")
-homing_order_defined = inifile.find("JOINT_0", "HOME_SEQUENCE") is not None
+
+homing_order_defined = 1
+# set homing_order_defined only if ALL joints specify a HOME_SEQUENCE
+for j in range(jointcount):
+    if inifile.find("JOINT_"+str(j), "HOME_SEQUENCE") is None:
+         homing_order_defined = 0
+         break
 
 update_ms = int(1000 * float(inifile.find("DISPLAY","CYCLE_TIME") or 0.020))
 
@@ -3453,11 +3520,11 @@ if duplicate_coord_letters != "":
     # sophisticated kinematics module that accepts duplicated coordinate
     # letters with some special requirements -- hence the warning:
 
-    print ("Warning: Forward kinematics must handle duplicate coordinate letters:%s"%
+    print (_("Warning: Forward kinematics must handle duplicate coordinate letters:%s")%
           duplicate_coord_letters)
 if len(trajcoordinates) > jointcount:
-    print ("Note: number of [TRAJ]COORDINATES=%s exceeds [KINS]JOINTS=%d"
-          %(trajcoordinates,jointcount))
+    print (_("Note: number of [TRAJ]COORDINATES=%(t)s exceeds [KINS]JOINTS=%(l)d")
+          %({'t':trajcoordinates,'l':jointcount}))
 
 def lathe_historical_config():
     # detect historical lathe config with dummy joint 1
@@ -3488,8 +3555,8 @@ for jnum in range(num_joints):
         ja_id = aletter_for_jnum(jnum)
         if ja_id.lower() in duplicate_coord_letters:
             if ja_id not in gave_individual_homing_message:
-                print "\nNote:\nIndividual axis homing is not currently supported for"
-                print "KINEMATICS_IDENTITY with duplicate axis letter <%s>\n"%ja_id
+                print _("\nNote:\nIndividual axis homing is not currently supported for")
+                print _("KINEMATICS_IDENTITY with duplicate axis letter <%s>\n")%ja_id
                 gave_individual_homing_message = gave_individual_homing_message + ja_id
             continue # no menu item for this individual axis letter
         widgets.homemenu.add_command(
@@ -3502,6 +3569,8 @@ for jnum in range(num_joints):
         widgets.unhomemenu.add_command(
                command=lambda jnum=jnum: commands.unhome_joint_number(jnum))
         ja_name = _("Joint")
+        if not homing_order_defined:
+            widgets.homebutton.configure(text=_("Home Joint"))
         if joint_sequence[jnum] is '':
             ja_id = "%d"%jnum
         elif (int(joint_sequence[jnum]) < 0):
@@ -3554,7 +3623,7 @@ if increments:
     root_window.call(widgets.jogincr._w, "list", "delete", "1", "end")
     root_window.call(widgets.jogincr._w, "list", "insert", "end", *increments)
 widgets.jogincr.configure(command= jogspeed_listbox_change)
-root_window.call(widgets.jogincr._w, "select", 0)   
+root_window.call(widgets.jogincr._w, "select", 0)
 
 vcp = inifile.find("DISPLAY", "PYVCP")
 
@@ -3678,7 +3747,7 @@ def get_coordinate_font(large):
         coordinate_font = "courier bold 20"
     else:
         coordinate_font = "courier bold 11"
-    
+
     if coordinate_font not in font_cache:
         font_cache[coordinate_font] = \
             glnav.use_pango_font(coordinate_font, 0, 128)
@@ -3694,7 +3763,7 @@ init()
 
 #right click menu for the program
 def rClicker(e):
-    
+
     def select_run_from(e):
         commands.task_run_line()
 
@@ -3724,6 +3793,7 @@ t.tag_configure("ignored", background="#ffffff", foreground="#808080")
 t.tag_configure("lineno", foreground="#808080")
 t.tag_configure("executing", background="#804040", foreground="#ffffff")
 t.bind("<Button-1>", select_line)
+t.bind("<Double-Button-1>", release_select_line)
 t.bind("<B1-Motion>", lambda e: "break")
 t.bind("<B1-Leave>", lambda e: "break")
 t.bind("<Button-4>", scroll_up)
@@ -3756,7 +3826,11 @@ if hal_present == 1 :
         f.grid(row=0, column=4, rowspan=6, sticky="nw", padx=4, pady=4)
         vcpparse.filename = vcp
         vcpparse.create_vcp(f, comp)
-    comp.ready()
+        vcp_frame = f
+        root_window.bind("<Control-e>", commands.toggle_show_pyvcppanel)
+        help2 += [("Ctrl-E", _("toggle PYVCP panel visibility"))]
+    else:
+        widgets.menu_view.delete(_("Show pyVCP pan_el").replace("_", ""))
 
     gladevcp = inifile.find("DISPLAY", "GLADEVCP")
     if gladevcp:
@@ -3771,13 +3845,19 @@ _dynamic_childs = {}
 def load_gladevcp_panel():
     gladevcp = inifile.find("DISPLAY", "GLADEVCP")
     if gladevcp:
+        gladecmd = gladevcp.split()
+        if '-c' in gladecmd:
+            gladename = gladecmd[gladecmd.index('-c') + 1]
+            del gladecmd[gladecmd.index('-c') + 1]
+            del gladecmd[gladecmd.index('-c')]
+        else:
+            gladename = 'gladevcp'
         from subprocess import Popen
-
         xid = gladevcp_frame.winfo_id()
-        cmd = "halcmd loadusr -Wn gladevcp gladevcp -c gladevcp".split()
-        cmd += ['-x', str(xid)] + gladevcp.split()
+        cmd = "halcmd loadusr -Wn {0} gladevcp -c {0}".format(gladename).split()
+        cmd += ['-x', str(xid)] + gladecmd
         child = Popen(cmd)
-        _dynamic_childs['gladevcp'] = (child, cmd, True)
+        _dynamic_childs['{}'.format(gladename)] = (child, cmd, True)
 
 notifications = Notification(root_window)
 
@@ -3968,26 +4048,26 @@ def forget(widget, *pins):
     if m in ("grid", "pack"):
         widget.tk.call(m, "forget", widget._w)
 
-forget(widgets.brake, "motion.spindle-brake")
-forget(widgets.spindle_cw, "motion.spindle-forward", "motion.spindle-on",
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
-forget(widgets.spindle_ccw, "motion.spindle-reverse",
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
-forget(widgets.spindle_stop, "motion.spindle-forward", "motion.spindle-reverse", "motion.spindle-on",
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
+forget(widgets.brake, "spindle.0.brake")
+forget(widgets.spindle_cw, "spindle.0.forward", "spindle.0.on",
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindle_ccw, "spindle.0.reverse",
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindle_stop, "spindle.0.forward", "spindle.0.reverse", "spindle.0.on",
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
 
 forget(widgets.spindle_plus,
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
 forget(widgets.spindle_minus,
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
 
-forget(widgets.spindlef,  "motion.spindle-forward", "motion.spindle-reverse", "motion.spindle-on", "motion.spindle-brake",
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
-forget(widgets.spindlel,  "motion.spindle-forward", "motion.spindle-reverse", "motion.spindle-on", "motion.spindle-brake",
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
+forget(widgets.spindlef,  "spindle.0.forward", "spindle.0.reverse", "spindle.0.on", "spindle.0.brake",
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
+forget(widgets.spindlel,  "spindle.0.forward", "spindle.0.reverse", "spindle.0.on", "spindle.0.brake",
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
 
 forget(widgets.spinoverridef,
-       "motion.spindle-speed-out", "motion.spindle-speed-out-abs", "motion.spindle-speed-out-rps", "motion.spindle-speed-out-rps-abs")
+       "spindle.0.speed-out", "spindle.0.speed-out-abs", "spindle.0.speed-out-rps", "spindle.0.speed-out-rps-abs")
 
 has_limit_switch = 0
 for j in range(linuxcnc.MAX_JOINTS):
@@ -4021,6 +4101,14 @@ if os.path.exists(rcfile):
         print >>sys.stderr, tb
         root_window.tk.call("nf_dialog", ".error", _("Error in ~/.axisrc"),
             tb, "error", 0, _("OK"))
+
+# call an empty function that can be overidden
+# by an .axisrc user_hal_pins() function
+# then set HAL component ready if the .axisui didn't
+if hal_present == 1 :
+    user_hal_pins()
+    if not hal.component_is_ready('axisui'):
+        comp.ready()
 
 _dynamic_tabs(inifile)
 if hal_present == 1:
